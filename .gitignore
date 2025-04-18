@@ -1,0 +1,15 @@
+venv/
+__pycache__/
+*.pyc
+.env
+*.log
+playwright/
+
+.idea/
+.pytest_cache/
+
+
+/markdown_output
+/screenshots
+*.log
+
