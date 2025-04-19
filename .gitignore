@@ -9,6 +9,9 @@ playwright/
 .pytest_cache/
 
 
+*/markdown_output
+*/screenshots
+
 /markdown_output
 /screenshots
 *.log

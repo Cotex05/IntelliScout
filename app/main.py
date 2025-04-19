@@ -1,6 +1,10 @@
 import streamlit as st
 from scraper import process_url
 from config import Config, logger
+import os
+from PIL import Image
+from urllib.parse import urlparse
+import re
 
 # Groq models configuration
 GROQ_MODELS = {
@@ -91,34 +95,52 @@ GROQ_MODELS = {
     }
 }
 
-st.title("IntelliScout - Internet Data Extractor")
+st.title("IntelliScout - Data Extractor")
 
-# Model selection dropdown with detailed info
-st.subheader("Model Selection")
-model_options = {f"{info['name']} (Max: {info['max_tokens']} tokens)": model_id 
-                for model_id, info in GROQ_MODELS.items()}
+# Sidebar for model selection only
+with st.sidebar:
+    st.header("Model Configuration")
+    
+    # Model selection dropdown with detailed info
+    model_options = {f"{info['name']} (Max: {info['max_tokens']} tokens)": model_id 
+                    for model_id, info in GROQ_MODELS.items()}
 
-selected_model_display = st.selectbox(
-    "Select LLM Model",
-    options=list(model_options.keys()),
-    help="Choose a Groq model to process your data. Each model has different capabilities and limits."
-)
+    selected_model_display = st.selectbox(
+        "Select LLM Model",
+        options=list(model_options.keys()),
+        help="Choose a Groq model to process your data. Each model has different capabilities and limits."
+    )
 
-selected_model_id = model_options[selected_model_display]
-selected_model = GROQ_MODELS[selected_model_id]
+    selected_model_id = model_options[selected_model_display]
+    selected_model = GROQ_MODELS[selected_model_id]
 
-# Display detailed model information
-st.info(f"""
-Model Details:
-- Name: {selected_model['name']}
-- Max Tokens: {selected_model['max_tokens']}
-- Requests/min: {selected_model['requests_per_minute']}
-- Tokens/min: {selected_model['tokens_per_minute']}
-""")
+    # Display detailed model information
+    st.info(f"""
+    Model Details:
+    - Name: {selected_model['name']}
+    - Max Tokens: {selected_model['max_tokens']}
+    - Requests/min: {selected_model['requests_per_minute']}
+    - Tokens/min: {selected_model['tokens_per_minute']}
+    """)
 
-# Update Config with selected model
-Config.update_model(selected_model_id)
+    # Update Config with selected model
+    Config.update_model(selected_model_id)
 
+    # Add temperature slider
+    temperature = st.slider(
+        "Temperature",
+        min_value=0.0,
+        max_value=2.0,
+        value=0.1,
+        step=0.1,
+        help="Controls randomness in the model's output. Lower values make the output more deterministic, higher values make it more creative."
+    )
+    
+    # Update temperature in config
+    Config.update_model(selected_model_id, temperature)
+
+# Main content area
+st.header("Input Parameters")
 url_input = st.text_input("Enter URL to Extract Data From")
 prompt = st.text_area("What data do you want to extract?", "Extract information from the given content.")
 
@@ -129,7 +151,51 @@ use_direct_url = st.checkbox(
     help="If checked it may not works for large content websites, sends URL directly to model. If unchecked, processes and extracts content first."
 )
 
-if st.button("Extract and Analyze"):
+# URL validation
+def is_valid_url(url):
+    try:
+        result = urlparse(url)
+        # Check if URL has scheme and netloc
+        if not all([result.scheme, result.netloc]):
+            return False
+            
+        # Check if domain has proper format (e.g., example.com)
+        domain_parts = result.netloc.split('.')
+        if len(domain_parts) < 2:
+            return False
+            
+        # Check if domain parts are valid
+        for part in domain_parts:
+            if not re.match(r'^[a-zA-Z0-9-]+$', part):
+                return False
+            if part.startswith('-') or part.endswith('-'):
+                return False
+                
+        # Check if TLD is at least 2 characters
+        if len(domain_parts[-1]) < 2:
+            return False
+            
+        return True
+    except:
+        return False
+
+# Validate URL and control button state
+is_url_valid = is_valid_url(url_input) if url_input else False
+button_disabled = not is_url_valid
+
+# Process button in main content
+process_button = st.button(
+    "Extract and Analyze",
+    type="primary",
+    disabled=button_disabled,
+    help="Enter a valid URL to enable extraction" if button_disabled else "Click to extract and analyze"
+)
+
+# Show validation message if URL is invalid
+if url_input and not is_url_valid:
+    st.error("Please enter a valid URL (e.g., https://example.com). The URL must have a proper domain format with at least one dot (.) and valid characters.")
+
+if process_button:
     if not url_input or not url_input.strip():
         st.error("Please provide a URL.")
         logger.warning("User submitted empty URL")
@@ -141,23 +207,49 @@ if st.button("Extract and Analyze"):
     with st.spinner("Processing... This may take a moment."):
         result = process_url(url_input, prompt, max_tokens=selected_model['max_tokens'], use_direct_url=use_direct_url)
 
-    st.subheader("Extracted Data")
-    st.json(result)
+    # Display screenshot if available
+    col1, col2 = st.columns([0.7, 0.3])
+    
+    with col1:
+        st.subheader("Extracted Data")
+        st.json(result)
 
-    # Display token usage if available
-    if isinstance(result, dict) and "usage" in result:
-        usage = result["usage"]
-        input_tokens = usage.get("prompt_tokens", "N/A")
-        output_tokens = usage.get("completion_tokens", "N/A")
-        total_tokens = usage.get("total_tokens", "N/A")
-        
-        st.subheader("Token Usage")
-        st.write(f"Input Tokens: {input_tokens}")
-        st.write(f"Output Tokens: {output_tokens}")
-        st.write(f"Total Tokens: {total_tokens}")
+        # Display token usage if available
+        if isinstance(result, dict) and "usage" in result:
+            usage = result["usage"]
+            input_tokens = usage.get("prompt_tokens", "N/A")
+            output_tokens = usage.get("completion_tokens", "N/A")
+            total_tokens = usage.get("total_tokens", "N/A")
+            
+            st.subheader("Token Usage")
+            st.write(f"Input Tokens: {input_tokens}")
+            st.write(f"Output Tokens: {output_tokens}")
+            st.write(f"Total Tokens: {total_tokens}")
 
-        # Warn if approaching token limit
-        if isinstance(input_tokens, int) and isinstance(output_tokens, int):
-            used_tokens = input_tokens + output_tokens
-            if used_tokens > selected_model['max_tokens'] * 0.9:  # Warn at 90% of limit
-                st.warning(f"Warning: Used {used_tokens} tokens, nearing limit of {selected_model['max_tokens']}")
+            # Warn if approaching token limit
+            if isinstance(input_tokens, int) and isinstance(output_tokens, int):
+                used_tokens = input_tokens + output_tokens
+                if used_tokens > selected_model['max_tokens'] * 0.9:  # Warn at 90% of limit
+                    st.warning(f"Warning: Used {used_tokens} tokens, nearing limit of {selected_model['max_tokens']}")
+
+    with col2:
+        st.subheader("Page Preview")
+        # Check if extraction was successful
+        if isinstance(result, dict) and result.get("status") == "success":
+            screenshot_path = "screenshots/screenshot.png"
+            if os.path.exists(screenshot_path):
+                # Set smaller fixed dimensions
+                fixed_height = 200
+                fixed_width = 200
+                
+                # Display the image with fixed dimensions
+                clicked = st.image(screenshot_path, 
+                        caption="Click to expand",
+                        width=fixed_width,
+                        use_container_width=False)
+                
+            else:
+                st.error("Screenshot not available")
+        else:
+            st.error("Extraction failed or returned an error")
+            

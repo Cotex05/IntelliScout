@@ -1,5 +1,7 @@
-# User Data Extractor
-A Streamlit app to extract user data from URLs or search terms using ScrapeGraphAI.
+# IntelliScout
+
+## Internet Data Extractor
+A Streamlit app to extract data from URLs or search terms using LLM Models with ScrapeGraphAI.
 
 ## Setup
 1. Clone the repo: `git clone <repo-url>`
@@ -13,4 +15,4 @@ A Streamlit app to extract user data from URLs or search terms using ScrapeGraph
 ## Usage
 - Select "URL" or "Search Term".
 - Enter input and a prompt.
-- Click "Extract and Analyze".# IntelliScout
+- Click "Extract and Analyze".

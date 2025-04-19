@@ -70,7 +70,7 @@ def extract_html_with_playwright(url, max_retries=3, retry_delay=5):
                 # Navigate to the page
                 response = page.goto(
                     url,
-                    wait_until="networkidle",
+                    wait_until="domcontentloaded",
                     timeout=45000
                 )
                 
@@ -84,13 +84,13 @@ def extract_html_with_playwright(url, max_retries=3, retry_delay=5):
                     
                     # Additional waits for SPAs
                     page.wait_for_load_state('domcontentloaded')
-                    page.wait_for_load_state('networkidle')
+                    # page.wait_for_load_state('networkidle')
                     
                     # Wait a bit more for dynamic content
                     page.wait_for_timeout(2000)
                     
                     # Scroll to bottom to trigger lazy loading
-                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                    # page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                     page.wait_for_timeout(1000)
                     
                 except Exception as e:
