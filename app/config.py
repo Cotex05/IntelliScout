@@ -33,8 +33,11 @@ class Config:
             "api_key": GROQ_API_KEY,
             "temperature": TEMPERATURE
         },
-        "headless": False,
+        "headless": True,
         "verbose": True,
+        "max_results": 1,
+        "compress_context": True,
+        # "search_engine": "duckduckgo",
     }
 
     @classmethod

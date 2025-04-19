@@ -4,7 +4,7 @@ from bs4 import BeautifulSoup, Comment
 from playwright.sync_api import sync_playwright
 from htmlmin import minify
 from markdownify import markdownify as md
-from scrapegraphai.graphs import SmartScraperGraph
+from scrapegraphai.graphs import SmartScraperGraph, SearchGraph
 from config import Config, logger
 import tiktoken
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -410,3 +410,60 @@ def process_url(url, prompt, max_tokens=10000, use_direct_url=False, output_form
             }
         else:
             return f"Error processing URL: {error_msg}"
+
+def process_search(search_prompt, max_tokens=10000, output_format="json"):
+    """Process a search query using SearchGraph.
+    
+    Args:
+        search_prompt (str): The search query
+        max_tokens (int): Maximum tokens to use
+        output_format (str): The desired output format ("markdown" or "json")
+    
+    Returns:
+        dict or str: Search results in the specified format
+    """
+    logger.info(f"Starting search processing with query: '{search_prompt}'")
+    logger.info(f"Using model: {Config.MODEL_ID} with max_tokens: {max_tokens}")
+    
+    try:
+        # Initialize SearchGraph with the prompt and config
+        search_scraper = SearchGraph(
+            prompt=search_prompt,
+            config=Config.GRAPH_CONFIG
+        )
+        
+        # Log the actual configuration being used
+        logger.info(f"Search config: {Config.GRAPH_CONFIG}")
+        
+        # Run the search
+        search_result = search_scraper.run()
+        logger.info(f"Search completed successfully")
+        
+        # Format the response based on the output format
+        if output_format.lower() == "json":
+            return {
+                "status": "success",
+                "result": search_result,
+                "metadata": {
+                    "mode": "search",
+                    "query": search_prompt,
+                    "model": Config.MODEL_ID,
+                    "max_tokens": max_tokens
+                }
+            }
+        else:
+            return search_result
+            
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"Error processing search '{search_prompt}': {error_msg}")
+        
+        if output_format.lower() == "json":
+            return {
+                "status": "error",
+                "error": error_msg,
+                "query": search_prompt,
+                "mode": "search"
+            }
+        else:
+            return f"Error processing search: {error_msg}"

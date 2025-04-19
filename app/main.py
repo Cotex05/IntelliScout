@@ -1,10 +1,15 @@
 import streamlit as st
-from scraper import process_url
+from scraper import process_url, process_search
 from config import Config, logger
 import os
 from PIL import Image
 from urllib.parse import urlparse
 import re
+import json
+
+# Initialize session state for mode
+if 'mode' not in st.session_state:
+    st.session_state.mode = 'url'  # Default mode
 
 # Groq models configuration
 GROQ_MODELS = {
@@ -97,10 +102,37 @@ GROQ_MODELS = {
 
 st.title("IntelliScout - Data Extractor")
 
-# Sidebar for model selection only
+# Add mode switch button in the sidebar
 with st.sidebar:
-    st.header("Model Configuration")
+    st.header("Mode Configuration")
     
+    # Create a container for the toggle button
+    toggle_container = st.container()
+    with toggle_container:
+        # Use columns to create a toggle-like appearance
+        col1, col2 = st.columns([1, 1])
+        
+        # URL Mode button
+        with col1:
+            if st.session_state.mode == 'url':
+                st.button("URL Mode", type="primary", disabled=True)
+            else:
+                if st.button("URL Mode"):
+                    st.session_state.mode = 'url'
+                    st.rerun()
+        
+        # Search Mode button
+        with col2:
+            if st.session_state.mode == 'search':
+                st.button("Search Mode", type="primary", disabled=True)
+            else:
+                if st.button("Search Mode"):
+                    st.session_state.mode = 'search'
+                    st.rerun()
+    
+    # Add a visual separator
+    st.markdown("---")
+
     # Model selection dropdown with detailed info
     model_options = {f"{info['name']} (Max: {info['max_tokens']} tokens)": model_id 
                     for model_id, info in GROQ_MODELS.items()}
@@ -139,141 +171,251 @@ with st.sidebar:
     # Update temperature in config
     Config.update_model(selected_model_id, temperature)
 
+def format_json_as_markdown(data):
+    """
+    Format JSON data as beautiful markdown.
+    - Keys become subheadings (## level)
+    - String values become paragraphs
+    - Array values become bullet points
+    - Nested objects are recursively formatted
+    
+    Args:
+        data: The data to format (dict, list, or simple value)
+    Returns:
+        Formatted markdown string
+    """
+    if isinstance(data, dict):
+        md_parts = []
+        
+        # Loop through dictionary items and format each
+        for key, value in data.items():
+            # Make the key a subheading (with title case for readability)
+            key_title = str(key).replace("_", " ").title()
+            md_parts.append(f"### {key_title}")
+            
+            # Format the value based on its type
+            if isinstance(value, dict):
+                # For nested dictionaries, indent and process recursively
+                nested_md = format_json_as_markdown(value)
+                md_parts.append(nested_md)
+            elif isinstance(value, list):
+                # For lists, create bullet points
+                if not value:
+                    md_parts.append("*No items found*\n")
+                else:
+                    for item in value:
+                        if isinstance(item, dict):
+                            # For a list of objects, format each as its own section
+                            md_parts.append(format_json_as_markdown(item))
+                        else:
+                            # For simple values, create bullet points
+                            md_parts.append(f"* {item}")
+                    md_parts.append("")  # Add spacing after list
+            else:
+                # For simple values, create a paragraph
+                if value is None:
+                    md_parts.append("*Not available*\n")
+                else:
+                    md_parts.append(f"{value}\n")
+        
+        return "\n".join(md_parts)
+    
+    elif isinstance(data, list):
+        md_parts = []
+        
+        # Format each item in the list
+        for item in data:
+            if isinstance(item, dict):
+                md_parts.append(format_json_as_markdown(item))
+            else:
+                md_parts.append(f"* {item}")
+        
+        return "\n".join(md_parts)
+    
+    else:
+        # Simple value, return as is
+        return str(data)
+
 # Main content area
-st.header("Input Parameters")
-url_input = st.text_input("Enter URL to Extract Data From")
-prompt = st.text_area("What data do you want to extract?", "Extract information from the given content.")
+if st.session_state.mode == 'url':
+    st.header("URL Scraper Mode")
+    url_input = st.text_input("Enter URL to Extract Data From")
+    prompt = st.text_area("What data do you want to extract?", "Extract important and relevant information from the given content.")
 
-# Add checkbox for URL processing mode
-use_direct_url = st.checkbox(
-    "Use Direct URL",
-    value=False,
-    help="If checked it may not works for large content websites, sends URL directly to model. If unchecked, processes and extracts content first."
-)
+    # Add checkbox for URL processing mode
+    use_direct_url = st.checkbox(
+        "Use Direct URL",
+        value=False,
+        help="If checked it may not works for large content websites, sends URL directly to model. If unchecked, processes and extracts content first."
+    )
 
-# Add output format selection
-output_format = st.selectbox(
-    "Output Format",
-    options=["Markdown", "JSON"],
-    index=0,  # Default to Markdown
-    help="Select the format for the extracted data output"
-)
+    # Add output format selection
+    output_format = st.selectbox(
+        "Output Format",
+        options=["JSON", "Markdown"],
+        index=0,  # Default to Markdown
+        help="Select the format for the extracted data output"
+    )
 
-# URL validation
-def is_valid_url(url):
-    try:
-        result = urlparse(url)
-        # Check if URL has scheme and netloc
-        if not all([result.scheme, result.netloc]):
-            return False
-            
-        # Check if domain has proper format (e.g., example.com)
-        domain_parts = result.netloc.split('.')
-        if len(domain_parts) < 2:
-            return False
-            
-        # Check if domain parts are valid
-        for part in domain_parts:
-            if not re.match(r'^[a-zA-Z0-9-]+$', part):
-                return False
-            if part.startswith('-') or part.endswith('-'):
+    # URL validation
+    def is_valid_url(url):
+        try:
+            result = urlparse(url)
+            # Check if URL has scheme and netloc
+            if not all([result.scheme, result.netloc]):
                 return False
                 
-        # Check if TLD is at least 2 characters
-        if len(domain_parts[-1]) < 2:
+            # Check if domain has proper format (e.g., example.com)
+            domain_parts = result.netloc.split('.')
+            if len(domain_parts) < 2:
+                return False
+                
+            # Check if domain parts are valid
+            for part in domain_parts:
+                if not re.match(r'^[a-zA-Z0-9-]+$', part):
+                    return False
+                if part.startswith('-') or part.endswith('-'):
+                    return False
+                    
+            # Check if TLD is at least 2 characters
+            if len(domain_parts[-1]) < 2:
+                return False
+                
+            return True
+        except:
             return False
-            
-        return True
-    except:
-        return False
 
-# Validate URL and control button state
-is_url_valid = is_valid_url(url_input) if url_input else False
-button_disabled = not is_url_valid
+    # Validate URL and control button state
+    is_url_valid = is_valid_url(url_input) if url_input else False
+    button_disabled = not is_url_valid
 
-# Process button in main content
-process_button = st.button(
-    "Extract and Analyze",
-    type="primary",
-    disabled=button_disabled,
-    help="Enter a valid URL to enable extraction" if button_disabled else "Click to extract and analyze"
-)
+    # Process button in main content
+    process_button = st.button(
+        "Extract and Analyze",
+        type="primary",
+        disabled=button_disabled,
+        help="Enter a valid URL to enable extraction" if button_disabled else "Click to extract and analyze"
+    )
 
-# Show validation message if URL is invalid
-if url_input and not is_url_valid:
-    st.error("Please enter a valid URL (e.g., https://example.com). The URL must have a proper domain format with at least one dot (.) and valid characters.")
+    # Show validation message if URL is invalid
+    if url_input and not is_url_valid:
+        st.error("Please enter a valid URL (e.g., https://example.com). The URL must have a proper domain format with at least one dot (.) and valid characters.")
 
-if process_button:
-    if not url_input or not url_input.strip():
-        st.error("Please provide a URL.")
-        logger.warning("User submitted empty URL")
-        st.stop()
+    if process_button:
+        if not url_input or not url_input.strip():
+            st.error("Please provide a URL.")
+            logger.warning("User submitted empty URL")
+            st.stop()
 
-    logger.info(f"User initiated URL extraction for: {url_input} using model: {selected_model_id}")
-    st.write(f"Processing: {url_input} with {selected_model['name']}")
-    
-    with st.spinner("Processing... This may take a moment."):
-        result = process_url(url_input, prompt, max_tokens=selected_model['max_tokens'], use_direct_url=use_direct_url, output_format=output_format.lower())
+        logger.info(f"User initiated URL extraction for: {url_input} using model: {selected_model_id}")
+        st.write(f"Processing: {url_input} with {selected_model['name']}")
+        
+        with st.spinner("Processing... This may take a moment."):
+            result = process_url(url_input, prompt, max_tokens=selected_model['max_tokens'], use_direct_url=use_direct_url, output_format=output_format.lower())
 
-    # Display screenshot if available
-    col1, col2 = st.columns([0.7, 0.3])
-    
-    with col1:
-        st.subheader("Extracted Data")
-        if output_format.lower() == "json":
-            st.json(result)
-        else:  # Markdown format
-            st.markdown(result)
+        # Display results in two columns
+        col1, col2 = st.columns([0.7, 0.3])
+        
+        with col1:
+            st.subheader("Extracted Data")
+            if output_format.lower() == "json":
+                st.json(result)
+            else:  # Markdown format
+                # Check if result is a string or dictionary
+                if isinstance(result, dict):
+                    # Format the result as markdown
+                    formatted_md = format_json_as_markdown(result)
+                    st.markdown(formatted_md)
+                else:
+                    # If it's already a string, display as is
+                    st.markdown(result)
 
-        # Display token usage if available
-        if isinstance(result, dict) and "usage" in result:
-            usage = result["usage"]
-            input_tokens = usage.get("prompt_tokens", "N/A")
-            output_tokens = usage.get("completion_tokens", "N/A")
-            total_tokens = usage.get("total_tokens", "N/A")
-            
-            st.subheader("Token Usage")
-            st.write(f"Input Tokens: {input_tokens}")
-            st.write(f"Output Tokens: {output_tokens}")
-            st.write(f"Total Tokens: {total_tokens}")
+            # Display token usage if available
+            if isinstance(result, dict) and "metadata" in result:
+                metadata = result["metadata"]
+                if "total_tokens" in metadata:
+                    st.subheader("Token Usage")
+                    st.write(f"Total Tokens: {metadata['total_tokens']}")
+                    if "prompt_tokens" in metadata:
+                        st.write(f"Input Tokens: {metadata['prompt_tokens']}")
+                    if "content_tokens" in metadata:
+                        st.write(f"Content Tokens: {metadata['content_tokens']}")
 
-            # Warn if approaching token limit
-            if isinstance(input_tokens, int) and isinstance(output_tokens, int):
-                used_tokens = input_tokens + output_tokens
-                if used_tokens > selected_model['max_tokens'] * 0.9:  # Warn at 90% of limit
-                    st.warning(f"Warning: Used {used_tokens} tokens, nearing limit of {selected_model['max_tokens']}")
+                    # Warn if approaching token limit
+                    total_tokens = metadata.get("total_tokens", 0)
+                    if total_tokens > selected_model['max_tokens'] * 0.9:  # Warn at 90% of limit
+                        st.warning(f"Warning: Used {total_tokens} tokens, nearing limit of {selected_model['max_tokens']}")
 
-    with col2:
-        st.subheader("Page Preview")
-        # Check if extraction was successful
-        if isinstance(result, dict) and result.get("status") == "success":
-            screenshot_path = "screenshots/screenshot.png"
-            if os.path.exists(screenshot_path):
-                # Set smaller fixed dimensions
-                fixed_height = 200
-                fixed_width = 200
-                
-                # Display the image with fixed dimensions
-                clicked = st.image(screenshot_path, 
-                        caption="Click to expand",
-                        width=fixed_width,
-                        use_container_width=False)
-                
+        with col2:
+            st.subheader("Page Preview")
+            # Check if extraction was successful
+            if isinstance(result, dict) and result.get("status") == "success" or output_format.lower() == "markdown":
+                screenshot_path = "screenshots/screenshot.png"
+                if os.path.exists(screenshot_path):
+                    # Set smaller fixed dimensions
+                    fixed_height = 200
+                    fixed_width = 200
+                    
+                    # Display the image with fixed dimensions
+                    clicked = st.image(screenshot_path, 
+                            caption="Click to expand",
+                            width=fixed_width,
+                            use_container_width=False)
+                    
+                else:
+                    st.error("Screenshot not available")
             else:
-                st.error("Screenshot not available")
-        else:
-            # For markdown output, we'll still show the screenshot if it exists
-            screenshot_path = "screenshots/screenshot.png"
-            if os.path.exists(screenshot_path):
-                # Set smaller fixed dimensions
-                fixed_height = 200
-                fixed_width = 200
+                st.error("Extraction failed or returned an error")
+
+else:  # Search Scraper Mode
+    st.header("Search Scraper Mode")
+    search_prompt = st.text_area("Enter your search query", "")
+    
+    # Add output format selection for search mode
+    search_output_format = st.selectbox(
+        "Output Format",
+        options=["Markdown", "JSON"],
+        index=0,
+        help="Select the format for the search results"
+    )
+    
+    # Validate search query
+    if not search_prompt or not search_prompt.strip():
+        st.error("Please enter a search query to proceed.")
+        search_button_disabled = True
+    else:
+        search_button_disabled = False
+    
+    search_button = st.button("Search", type="primary", disabled=search_button_disabled)
+    
+    if search_button:
+        logger.info(f"User initiated search with query: {search_prompt}")
+        st.write(f"Searching with {selected_model['name']}")
+        
+        with st.spinner("Searching... This may take a moment."):
+            try:
+                # Use process_search function from scraper.py
+                search_result = process_search(
+                    search_prompt, 
+                    max_tokens=selected_model['max_tokens'],
+                    output_format=search_output_format.lower()
+                )
                 
-                # Display the image with fixed dimensions
-                clicked = st.image(screenshot_path, 
-                        caption="Click to expand",
-                        width=fixed_width,
-                        use_container_width=False)
-            else:
-                st.error("Screenshot not available")
+                # Display results
+                st.subheader("Search Results")
+                if search_output_format.lower() == "json":
+                    st.json(search_result)
+                else:
+                    # Check if result is a string or dictionary
+                    if isinstance(search_result, dict):
+                        # Format the result as markdown
+                        formatted_md = format_json_as_markdown(search_result)
+                        st.markdown(formatted_md)
+                    else:
+                        # If it's already a string, display as is
+                        st.markdown(search_result)
+                    
+            except Exception as e:
+                st.error(f"Error during search: {str(e)}")
+                logger.error(f"Search error: {str(e)}")
             
