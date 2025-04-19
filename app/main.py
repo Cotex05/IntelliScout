@@ -6,6 +6,7 @@ from PIL import Image
 from urllib.parse import urlparse
 import re
 import json
+from utils.ui_helpers import display_screenshot, create_screenshots_dir
 
 # Initialize session state for mode
 if 'mode' not in st.session_state:
@@ -289,17 +290,42 @@ if st.session_state.mode == 'url':
     is_url_valid = is_valid_url(url_input) if url_input else False
     button_disabled = not is_url_valid
 
-    # Process button in main content
-    process_button = st.button(
-        "Extract and Analyze",
-        type="primary",
-        disabled=button_disabled,
-        help="Enter a valid URL to enable extraction" if button_disabled else "Click to extract and analyze"
-    )
+    # Add a preview button to capture screenshot before extraction
+    preview_col1, preview_col2 = st.columns([1, 1])
+    with preview_col1:
+        preview_button = st.button(
+            "Preview Website",
+            disabled=button_disabled,
+            help="Take a screenshot of the website for preview before extraction"
+        )
+    
+    with preview_col2:
+        # Process button in main content
+        process_button = st.button(
+            "Extract and Analyze",
+            type="primary",
+            disabled=button_disabled,
+            help="Enter a valid URL to enable extraction" if button_disabled else "Click to extract and analyze"
+        )
 
     # Show validation message if URL is invalid
     if url_input and not is_url_valid:
         st.error("Please enter a valid URL (e.g., https://example.com). The URL must have a proper domain format with at least one dot (.) and valid characters.")
+
+    # Preview functionality
+    if preview_button and is_url_valid:
+        create_screenshots_dir()
+        with st.spinner("Capturing website preview..."):
+            from scraper import extract_html_with_playwright
+            try:
+                # Just extract HTML to trigger screenshot capture
+                extract_html_with_playwright(url_input)
+                st.success("Website preview captured successfully")
+                # Display the screenshot
+                display_screenshot(url_input)
+            except Exception as e:
+                st.error(f"Error capturing preview: {str(e)}")
+                logger.error(f"Preview error: {str(e)}")
 
     if process_button:
         if not url_input or not url_input.strip():
@@ -307,6 +333,9 @@ if st.session_state.mode == 'url':
             logger.warning("User submitted empty URL")
             st.stop()
 
+        # Ensure screenshots directory exists
+        create_screenshots_dir()
+        
         logger.info(f"User initiated URL extraction for: {url_input} using model: {selected_model_id}")
         st.write(f"Processing: {url_input} with {selected_model['name']}")
         
@@ -347,25 +376,31 @@ if st.session_state.mode == 'url':
                         st.warning(f"Warning: Used {total_tokens} tokens, nearing limit of {selected_model['max_tokens']}")
 
         with col2:
-            st.subheader("Page Preview")
-            # Check if extraction was successful
-            if isinstance(result, dict) and result.get("status") == "success" or output_format.lower() == "markdown":
-                screenshot_path = "screenshots/screenshot.png"
-                if os.path.exists(screenshot_path):
-                    # Set smaller fixed dimensions
-                    fixed_height = 200
-                    fixed_width = 200
-                    
-                    # Display the image with fixed dimensions
-                    clicked = st.image(screenshot_path, 
-                            caption="Click to expand",
-                            width=fixed_width,
-                            use_container_width=False)
-                    
+            # Try to display the screenshot using the utility function
+            if not display_screenshot(url_input):
+                st.subheader("Page Preview")
+                # Fallback if the domain-specific screenshot doesn't exist
+                if isinstance(result, dict) and result.get("status") == "success" or output_format.lower() == "markdown":
+                    screenshot_path = "screenshots/screenshot.png"
+                    if os.path.exists(screenshot_path):
+                        # Display the image with thumbnail size
+                        st.image(screenshot_path, 
+                                caption="Page Screenshot",
+                                width=300,
+                                use_container_width=False)
+                        
+                        # Add download button for full-size image
+                        with open(screenshot_path, "rb") as file:
+                            btn = st.download_button(
+                                label="Download Full Screenshot",
+                                data=file,
+                                file_name="page_screenshot.png",
+                                mime="image/png"
+                            )
+                    else:
+                        st.error("Screenshot not available")
                 else:
-                    st.error("Screenshot not available")
-            else:
-                st.error("Extraction failed or returned an error")
+                    st.error("Extraction failed or returned an error")
 
 else:  # Search Scraper Mode
     st.header("Search Scraper Mode")

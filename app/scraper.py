@@ -11,16 +11,28 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores import FAISS
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.docstore.document import Document
+from urllib.parse import urlparse
 
 def save_screenshot(page, url):
     """Save a screenshot of the opened page to a directory."""
     screenshot_dir = "screenshots"
     os.makedirs(screenshot_dir, exist_ok=True)
+    
+    # Create filename based on domain and timestamp
+    parsed_url = urlparse(url)
+    domain = parsed_url.netloc.replace("www.", "")
+    
+    # Save both domain-specific and generic screenshot
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    screenshot_filename = os.path.join(screenshot_dir, f"screenshot.png")
+    domain_screenshot = os.path.join(screenshot_dir, f"{domain}.png")
+    generic_screenshot = os.path.join(screenshot_dir, f"screenshot.png")
+    
     try:
-        page.screenshot(path=screenshot_filename, full_page=True)
-        logger.info(f"Saved screenshot to {screenshot_filename}")
+        # Take and save full page screenshot
+        page.screenshot(path=domain_screenshot, full_page=True)
+        # Also save as generic screenshot.png for backward compatibility
+        page.screenshot(path=generic_screenshot, full_page=True)
+        logger.info(f"Saved screenshot to {domain_screenshot}")
     except Exception as e:
         logger.error(f"Error saving screenshot for {url}: {str(e)}")
 
