@@ -151,6 +151,14 @@ use_direct_url = st.checkbox(
     help="If checked it may not works for large content websites, sends URL directly to model. If unchecked, processes and extracts content first."
 )
 
+# Add output format selection
+output_format = st.selectbox(
+    "Output Format",
+    options=["Markdown", "JSON"],
+    index=0,  # Default to Markdown
+    help="Select the format for the extracted data output"
+)
+
 # URL validation
 def is_valid_url(url):
     try:
@@ -205,14 +213,17 @@ if process_button:
     st.write(f"Processing: {url_input} with {selected_model['name']}")
     
     with st.spinner("Processing... This may take a moment."):
-        result = process_url(url_input, prompt, max_tokens=selected_model['max_tokens'], use_direct_url=use_direct_url)
+        result = process_url(url_input, prompt, max_tokens=selected_model['max_tokens'], use_direct_url=use_direct_url, output_format=output_format.lower())
 
     # Display screenshot if available
     col1, col2 = st.columns([0.7, 0.3])
     
     with col1:
         st.subheader("Extracted Data")
-        st.json(result)
+        if output_format.lower() == "json":
+            st.json(result)
+        else:  # Markdown format
+            st.markdown(result)
 
         # Display token usage if available
         if isinstance(result, dict) and "usage" in result:
@@ -251,5 +262,18 @@ if process_button:
             else:
                 st.error("Screenshot not available")
         else:
-            st.error("Extraction failed or returned an error")
+            # For markdown output, we'll still show the screenshot if it exists
+            screenshot_path = "screenshots/screenshot.png"
+            if os.path.exists(screenshot_path):
+                # Set smaller fixed dimensions
+                fixed_height = 200
+                fixed_width = 200
+                
+                # Display the image with fixed dimensions
+                clicked = st.image(screenshot_path, 
+                        caption="Click to expand",
+                        width=fixed_width,
+                        use_container_width=False)
+            else:
+                st.error("Screenshot not available")
             

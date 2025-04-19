@@ -204,7 +204,7 @@ def clean_html(html_content):
         logger.warning("Returning original HTML content due to cleaning error")
         return html_content
 
-def process_url(url, prompt, max_tokens=10000, use_direct_url=False):
+def process_url(url, prompt, max_tokens=10000, use_direct_url=False, output_format="markdown"):
     """Process a URL: extract HTML, clean, minify, convert to Markdown, and parse.
     
     Args:
@@ -212,6 +212,7 @@ def process_url(url, prompt, max_tokens=10000, use_direct_url=False):
         prompt (str): The query prompt
         max_tokens (int): Maximum tokens to use
         use_direct_url (bool): If True, passes URL directly to model. If False, processes content first.
+        output_format (str): The desired output format ("markdown" or "json")
     """
     logger.info(f"Starting processing for URL: {url} (Direct URL: {use_direct_url})")
     
@@ -226,14 +227,17 @@ def process_url(url, prompt, max_tokens=10000, use_direct_url=False):
             )
             final_result = scraper.run()
             
-            return {
-                "status": "success",
-                "result": final_result,
-                "metadata": {
-                    "mode": "direct_url",
-                    "url": url
+            if output_format.lower() == "json":
+                return {
+                    "status": "success",
+                    "result": final_result,
+                    "metadata": {
+                        "mode": "direct_url",
+                        "url": url
+                    }
                 }
-            }
+            else:
+                return final_result
         
         # Content processing mode
         logger.info("Using content processing mode")
@@ -376,27 +380,33 @@ def process_url(url, prompt, max_tokens=10000, use_direct_url=False):
         )
         final_result = scraper.run()
 
-        return {
-            "status": "success",
-            "result": final_result,
-            "metadata": {
-                "mode": "processed_content",
-                "total_chunks": len(chunks),
-                "used_chunks": len(selected_chunks),
-                "prompt_tokens": PROMPT_TOKENS,
-                "content_tokens": used_tokens,
-                "total_tokens": PROMPT_TOKENS + used_tokens + SYSTEM_RESERVE,
-                "markdown_file": markdown_filename,
-                "url": url
+        if output_format.lower() == "json":
+            return {
+                "status": "success",
+                "result": final_result,
+                "metadata": {
+                    "mode": "processed_content",
+                    "total_chunks": len(chunks),
+                    "used_chunks": len(selected_chunks),
+                    "prompt_tokens": PROMPT_TOKENS,
+                    "content_tokens": used_tokens,
+                    "total_tokens": PROMPT_TOKENS + used_tokens + SYSTEM_RESERVE,
+                    "markdown_file": markdown_filename,
+                    "url": url
+                }
             }
-        }
+        else:
+            return final_result
 
     except Exception as e:
         error_msg = str(e)
         logger.error(f"Error processing URL {url}: {error_msg}")
-        return {
-            "status": "error",
-            "error": error_msg,
-            "url": url,
-            "mode": "direct_url" if use_direct_url else "processed_content"
-        }
+        if output_format.lower() == "json":
+            return {
+                "status": "error",
+                "error": error_msg,
+                "url": url,
+                "mode": "direct_url" if use_direct_url else "processed_content"
+            }
+        else:
+            return f"Error processing URL: {error_msg}"
